@@ -12,6 +12,10 @@ executable('chmess', 'projects/demo/main.cpp',
 executable('chmess_perft', 'projects/perft/main.cpp',
     win_subsystem: 'windows',
     dependencies: [logger_dep, glm_dep])
+    
+executable('chmess_negamax', 'projects/negamax/main.cpp',
+    win_subsystem: 'windows',
+    dependencies: [logger_dep, glm_dep])
 
 
 executable('genZobrist', 'generators/genZobrist/main.cpp',

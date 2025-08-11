@@ -47,8 +47,7 @@ public:
         if (move_index < 0 || move_index >= moves_c) return false;
 
         // apply move and undo stack
-        undo_stack.push(game_state.get_unmove(moves[move_index]));
-        game_state.applyMove(moves[move_index]);
+        undo_stack.push(game_state.applyMove(moves[move_index]));
         updateAvaliableMoves();
         return true;
     }
@@ -74,8 +73,9 @@ public:
 
 protected:
     void updateAvaliableMoves() {
-        moves_c = MoveGenerator::genAllMoves(game_state, moves);
-        available_formatted_moves = Ascii::formatMoveList(moves_c, moves);
+        bool _check;
+        moves_c = MoveGenerator::genAllMoves(game_state, moves, _check);
+        available_formatted_moves = Ascii::formatMoveList(game_state, moves_c, moves);
     }
 
     int findMoveFormatted(const std::string & move_str) {

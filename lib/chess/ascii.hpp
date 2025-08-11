@@ -73,7 +73,7 @@ namespace Chess::Ascii {
     }
 
     // i just let gpt-5 generate this one ngl
-    std::vector<std::string> formatMoveList(int moves_c, Move * moves) {
+    std::vector<std::string> formatMoveList(const GameState & gs_ref, int moves_c, Move * moves) {
         std::vector<std::string> out;
         out.reserve(moves_c);
 
@@ -85,10 +85,11 @@ namespace Chess::Ascii {
         std::unordered_map<Key, std::vector<int>, KeyHash, KeyEq> groups;
         groups.reserve(moves_c);
         for (int i = 0; i < (int)moves_c; ++i) {
-            const auto& m = moves[i];
-            if (m.is_castle) continue;               // castles never need disambiguation
-            if (m.starting_piece == PAWN) continue;    // pawns use file on capture, not SAN piece disambig
-            groups[{(int)m.starting_piece, m.to}].push_back(m.from);
+            const auto& m = moves[i]; 
+            const PIECE starting_piece = gs_ref.getPieceTypeAtSquare(m.from(), gs_ref.turn);
+            if (gs_ref.isMoveCastle(m)) continue;               // castles never need disambiguation
+            if (starting_piece == PAWN) continue;    // pawns use file on capture, not SAN piece disambig
+            groups[{(int)starting_piece, m.to()}].push_back(m.from());
         }
 
         auto disambig = [&](const std::vector<int>& froms, int my_from) -> std::string {
@@ -112,19 +113,22 @@ namespace Chess::Ascii {
             auto m = moves[i];
             std::stringstream ss;
 
+            const PIECE starting_piece = gs_ref.getPieceTypeAtSquare(m.from(), gs_ref.turn);
+            const PIECE ending_piece = (starting_piece == PAWN) ? m.promo_piece() : starting_piece;
+
             // Castling
-            if (m.is_castle) {
-                int from_f = squareCol(m.from), to_f = squareCol(m.to);
+            if (gs_ref.isMoveCastle(m)) {
+                int from_f = squareCol(m.from()), to_f = squareCol(m.to());
                 ss << ((to_f > from_f) ? "O-O" : "O-O-O");
                 out.push_back(ss.str());
                 continue;
             }
 
-            const bool is_pawn = (m.starting_piece == PAWN);
+            const bool is_pawn = (starting_piece == PAWN);
 
             // Piece letter (pawns omit)
             if (!is_pawn) {
-                switch (m.starting_piece) {
+                switch (starting_piece) {
                     case KNIGHT: ss << 'N'; break;
                     case BISHOP: ss << 'B'; break;
                     case ROOK:   ss << 'R'; break;
@@ -132,22 +136,22 @@ namespace Chess::Ascii {
                     case KING:   ss << 'K'; break;
                     default: break;
                 }
-                auto it = groups.find({(int)m.starting_piece, m.to});
-                if (it != groups.end()) ss << disambig(it->second, m.from);
+                auto it = groups.find({(int) starting_piece, m.to()});
+                if (it != groups.end()) ss << disambig(it->second, m.from());
             }
 
             // Capture marker; pawns print file letter when capturing
-            bool is_capture = (m.capture != Move::CAPTURE::NONE) || m.is_en_passant;
-            if (is_pawn && is_capture) ss << Ascii::squareColChar(m.from);
+            bool is_capture = m.isCapture();
+            if (is_pawn && is_capture) ss << Ascii::squareColChar(m.from());
             if (is_capture) ss << 'x';
 
             // Destination square
-            ss << Ascii::squareToLetterNumber(m.to);
+            ss << Ascii::squareToLetterNumber(m.to());
 
             // Promotion
-            if (is_pawn && m.ending_piece != PAWN) {
-                char promo = 'Q';
-                switch (m.ending_piece) {
+            if (is_pawn && ending_piece != PAWN) {
+                char promo = '?';
+                switch (ending_piece) {
                     case KNIGHT: promo = 'N'; break;
                     case BISHOP: promo = 'B'; break;
                     case ROOK:   promo = 'R'; break;

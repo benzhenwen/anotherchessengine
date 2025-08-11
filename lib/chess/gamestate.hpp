@@ -33,11 +33,11 @@ public:
     unsigned int fullmove_clock = 0;
 
 protected:
-    U64f hash_code = Chess::ZobristHashes::castle_codes[0][0][0][0];
+    U64 hash_code = Chess::ZobristHashes::castle_codes[0][0][0][0];
 
 
 public:
-    GameState() = default;
+    constexpr GameState() = default;
 
     GameState(const GameState & other):
     turn(other.turn),
@@ -134,11 +134,11 @@ public:
     }
 
     // hash
-    inline U64f operator()(const GameState & key) const {
+    inline U64 operator()(const GameState & key) const {
         return key.hash_code;
     }
 
-    inline U64f getHashCode() const {
+    inline U64 getHashCode() const {
         return hash_code;
     }
 
@@ -175,21 +175,49 @@ public:
         assert(false);
     }
 
+public:
+    inline bool isMoveCastle(const Move & m) const {
+        return (pieces[turn][KING] & squareToBitboard(m.from())) && (std::abs(m.from() - m.to()) == 2); // king moved horizontally 2 squares
+    }
+    inline bool isMoveEnPassant(const Move & m) const {
+        if (en_passant == -1) return false;
+        return (pieces[turn][PAWN] & squareToBitboard(m.from())) && (en_passant == m.to()); // pawn moved and it was into the en passant square (pawns cannot push into ep square as the square before is always occupied by an opposing pawn)
+    }
+
 // moves
 public:
-    inline void applyMove(const Move & move) {
+    inline Unmove applyMove(const Move & move) { // returns the unmove mirror of move
+        const PIECE starting_piece = getPieceTypeAtSquare(move.from(), turn);
+        const PIECE ending_piece = (starting_piece == PAWN) ? move.promo_piece() : starting_piece;
+
+        const int capture_square = move.isCapture() ? (move.to() + (isMoveEnPassant(move) ? ((turn == WHITE) ? -8 : 8) : 0)) : 0;
+
+        Unmove um = Unmove(
+            move.from(), move.to(), 
+            starting_piece, ending_piece, 
+            (move.isCapture() ? 
+                (isMoveEnPassant(move) ? Unmove::CAPTURE::PAWN : (Unmove::CAPTURE) getPieceTypeAtSquare(capture_square, (COLOR) !turn)) 
+                : Unmove::CAPTURE::NONE),
+            isMoveEnPassant(move),
+            isMoveCastle(move),
+            castle_K, castle_Q, castle_k, castle_q, 
+            en_passant, 
+            halfmove_clock, fullmove_clock, 
+            turn, 
+            hash_code
+        );
+
         // capture
-        if (move.capture != Move::CAPTURE::NONE) {
-            const int capture_square = move.to + (move.is_en_passant ? ((turn == WHITE) ? -8 : 8) : 0); // additional logic for en passant
-            removePiece(capture_square, (COLOR) !turn, (PIECE) move.capture); // remove opposing color piece at moving to square
+        if (move.isCapture()) {
+            removePiece(capture_square, (COLOR) !turn, getPieceTypeAtSquare(capture_square, (COLOR) !turn)); // remove opposing color piece at moving to square
         }
 
         // move part of move
-        removePiece(move.from, turn, move.starting_piece);
-        addPiece(move.to, turn, move.ending_piece);
+        removePiece(move.from(), turn, starting_piece);
+        addPiece(move.to(), turn, ending_piece);
 
-        if (move.is_castle) {
-            if (move.from < move.to) { // kingside castle
+        if (um.is_castle) {
+            if (move.from() < move.to()) { // kingside castle
                 removePiece((turn == WHITE) ? 7 : 63, turn, ROOK); // remove rook from h1 / h8
                 addPiece((turn == WHITE) ? 5 : 61, turn, ROOK); // add rook to f1 / f8
             } else { // queenside castle
@@ -199,11 +227,13 @@ public:
         }
 
         // en passant enable
-        if (move.starting_piece == PAWN && std::abs(move.from - move.to) == 16) { // if pawn move and moved 2 squres vertically (postion changed by 16)
-            setEnPassantSquare((turn == WHITE) ? (move.from + 8) : (move.from - 8));
+        if (starting_piece == PAWN && std::abs(move.from() - move.to()) == 16) { // if pawn move and moved 2 squres vertically (postion changed by 16)
+            setEnPassantSquare((turn == WHITE) ? (move.from() + 8) : (move.from() - 8));
         } else {
             setEnPassantSquare(-1);
         }
+
+        assert (squareRow(en_passant) == 2 || squareRow(en_passant) == 5 || en_passant == -1);
 
         // castle disable
         if (castle_K || castle_Q || castle_k || castle_q) {
@@ -211,7 +241,7 @@ public:
             bool temp_cQ = castle_Q;
             bool temp_ck = castle_k;
             bool temp_cq = castle_q;
-            switch (move.from) {
+            switch (move.from()) {
                 case 4: // if move from e1 (king square) no white castling
                     temp_cK = false;
                     temp_cQ = false;
@@ -233,7 +263,7 @@ public:
                     temp_ck = false;
                     break;
             }
-            switch (move.to) {
+            switch (move.to()) {
                 case 0: // if capture to a1, no white queenside
                     temp_cQ = false;
                     break;
@@ -253,7 +283,7 @@ public:
         }
 
         // clocks
-        if (move.capture != Move::CAPTURE::NONE || move.starting_piece == PAWN) {
+        if (move.isCapture() || starting_piece == PAWN) {
             halfmove_clock = 0;
         } else {
             halfmove_clock++;
@@ -262,15 +292,19 @@ public:
         if (turn == BLACK) fullmove_clock++;
 
         turn = (COLOR) !turn; // next move
+
+        return um;
     }
 
-    inline void applyUnmove(const Unmove & unmove) {
+
+    inline void applyUnmove(const Unmove & unmove) { 
         
         // The side that made the move
         const COLOR mover = unmove.turn_before;
 
         // Undo special rook shift if castling
         if (unmove.is_castle) {
+
             if (unmove.from < unmove.to) { // king-side
                 // rook f1/f8 -> h1/h8
                 removePiece_noHashUpdate((mover == WHITE) ? 5 : 61, mover, ROOK);
@@ -287,9 +321,9 @@ public:
         addPiece_noHashUpdate(unmove.from, mover, unmove.starting_piece);
 
         // Restore captured piece (normal or en passant)
-        if (unmove.capture != Move::CAPTURE::NONE) {
+        if (unmove.captured_piece != Unmove::CAPTURE::NONE) {
             const int cap_sq = unmove.is_en_passant ? (unmove.to + (mover == WHITE ? -8 : +8)) : unmove.to;
-            addPiece_noHashUpdate(cap_sq, (COLOR)!unmove.turn_before, (PIECE)unmove.capture);
+            addPiece_noHashUpdate(cap_sq, (COLOR) !unmove.turn_before, (PIECE) unmove.captured_piece);
         }
 
         // Restore state
@@ -305,10 +339,6 @@ public:
         turn = unmove.turn_before;
         hash_code = unmove.hash_before; 
 
-    }
-
-    inline Unmove get_unmove(Move m) { // call before making a move
-        return Unmove(m, castle_K, castle_Q, castle_k, castle_q, en_passant, halfmove_clock, fullmove_clock, turn, hash_code);
     }
 
 };

@@ -11,7 +11,7 @@ struct Unmove {
     PIECE starting_piece;
     PIECE ending_piece;
 
-    Move::CAPTURE capture;
+    enum CAPTURE {PAWN=0, KNIGHT, BISHOP, ROOK, QUEEN, NONE} captured_piece;
 
     bool is_en_passant;
     bool is_castle;
@@ -26,14 +26,14 @@ struct Unmove {
     COLOR turn_before;
     U64 hash_before;
 
-    Unmove(const Move & move, bool pre_castle_K, bool pre_castle_Q, bool pre_castle_k, bool pre_castle_q, bool pre_en_passant, bool pre_halfmove_clock, bool pre_fullmove_clock, COLOR pre_turn, U64 pre_hash_code):
-        from(move.from),
-        to(move.to),
-        starting_piece(move.starting_piece),
-        ending_piece(move.ending_piece),
-        capture(move.capture),
-        is_en_passant(move.is_en_passant),
-        is_castle(move.is_castle),
+    Unmove(int _from, int _to, PIECE _starting_piece, PIECE _ending_piece, CAPTURE _captured_piece, bool _is_en_passant, bool _is_castle, bool pre_castle_K, bool pre_castle_Q, bool pre_castle_k, bool pre_castle_q, int pre_en_passant, bool pre_halfmove_clock, bool pre_fullmove_clock, COLOR pre_turn, U64 pre_hash_code):
+        from(_from),
+        to(_to),
+        starting_piece(_starting_piece),
+        ending_piece(_ending_piece),
+        captured_piece(_captured_piece),
+        is_en_passant(_is_en_passant),
+        is_castle(_is_castle),
         castle_K(pre_castle_K),
         castle_Q(pre_castle_Q),
         castle_k(pre_castle_k),

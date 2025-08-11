@@ -13,6 +13,8 @@ currently capable of ~200M nodes/second raw perft search (depth 6 from starting 
 # Projects
 ## Perft
 contains a perft method with reasonable generation speeds, tested against all examples in [Chessprogramming](https://www.chessprogramming.org/Perft_Results) for accuracy
+## negamax
+Basic evaluation, currently only with alpha-beta pruning and iterative deepening. Transposition tables in the works
 ## Game
 play the game against yourself, the engine accepts algebreic notation
 

@@ -13,16 +13,16 @@ namespace Chess::Engine::Perft {
     U64 perft(GameState& gs, int depth, bool top_depth = true) {
         if (depth == 0) return 1;
 
+        bool _check;
         Move moves[256];
-        int n = MoveGenerator::genAllMoves(gs, moves);
+        int n = MoveGenerator::genAllMoves(gs, moves, _check);
         if (depth == 1) return n;
 
         U64 nodes = 0;
         for (int i = 0; i < n; ++i) {
             const Move& m = moves[i];
 
-            Unmove u = gs.get_unmove(m); 
-            gs.applyMove(m); 
+            Unmove u = gs.applyMove(m); 
 
             U64 cnt = perft(gs, depth - 1, false);
 

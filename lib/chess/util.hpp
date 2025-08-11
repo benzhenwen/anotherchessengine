@@ -6,8 +6,14 @@
 #include <cassert>
 
 namespace Chess {
-    using U64 = uint64_t;
-    using U64f = uint_fast64_t;
+    using U64 = std::uint64_t;
+    using U32 = std::uint32_t;
+    using U16 = std::uint16_t;
+    using U8 = std::uint8_t;
+
+    using I32 = std::int32_t;
+    using I16 = std::int16_t;
+    using I8 = std::int8_t;
 
     enum COLOR {WHITE=0, BLACK=1};
     enum PIECE {PAWN=0, KNIGHT, BISHOP, ROOK, QUEEN, KING};

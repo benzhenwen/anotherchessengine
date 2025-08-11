@@ -4,31 +4,44 @@
 
 namespace Chess {
 struct Move {
-    int from;
-    int to;
-    
-    PIECE starting_piece;
-    PIECE ending_piece;
+    // packed value
+    U16 v;
 
-    // useful metadata
-    enum CAPTURE {PAWN=0, KNIGHT, BISHOP, ROOK, QUEEN, KING, NONE} capture;
+    static constexpr U16 M_FROM  = 0b1111110000000000;
+    static constexpr U16 M_TO    = 0b0000001111110000;
 
-    bool is_en_passant;
-    bool is_castle;
+    enum PROMO {NONE=0, KNIGHT=1, BISHOP=2, ROOK=3, QUEEN=4};
+    static constexpr U16 M_PROMO = 0b0000000000001110;
+    static constexpr U16 M_IS_CAPTURE = 0b0000000000000001;
 
-    Move() = default;
-    Move(int _from, int _to, PIECE _starting_piece, PIECE _ending_piece, CAPTURE _capture = NONE, bool _is_en_passant = false, bool _is_castle = false):
-        from(_from),
-        to(_to),
-        starting_piece(_starting_piece),
-        ending_piece(_ending_piece),
-        capture(_capture),
-        is_en_passant(_is_en_passant),
-        is_castle(_is_castle)
-    {}
+    constexpr Move(): v(0) {};
+    constexpr Move(int _from, int _to, PROMO _promo, bool _is_capture):
+        v((U16) ((_from << 10) | (_to << 4) | (_promo << 1) | _is_capture)) 
+    {
+        assert(_from >= 0 && _from <= 63);
+        assert(_to >= 0 && _to <= 63);
+        assert(_promo >= 0 && _promo <= 4);
+    }
 
+    constexpr int from() const {
+        return (v & M_FROM) >> 10;
+    }
+    constexpr int to() const {
+        return (v & M_TO) >> 4;
+    }
+    constexpr PIECE promo_piece() const {
+        return (PIECE) ((v & M_PROMO) >> 1); // matches NONE = pawn, so main loop pawn moves can just make output piece a pawn;
+    }
+    constexpr bool isCapture() const {
+        return v & M_IS_CAPTURE;
+    }
+
+
+
+    // some display stuff
+public:
     std::string toString() const {
-        return squareToLetterNumber(from) + " -> " + squareToLetterNumber(to);
+        return squareToLetterNumber(from()) + " -> " + squareToLetterNumber(to());
     }
 
 private:
@@ -37,4 +50,6 @@ private:
     }
 
 };
+
+static_assert(sizeof(Move)==2);
 }
