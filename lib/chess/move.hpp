@@ -22,6 +22,7 @@ struct Move {
         assert(_to >= 0 && _to <= 63);
         assert(_promo >= 0 && _promo <= 4);
     }
+    constexpr Move(U16 other): v(other) {}
 
     constexpr int from() const {
         return (v & M_FROM) >> 10;

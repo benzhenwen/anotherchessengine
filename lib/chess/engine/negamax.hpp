@@ -9,6 +9,7 @@
 #include <lib/chess/unmove.hpp>
 
 #include <lib/chess/engine/evaluation.hpp>
+#include <lib/chess/engine/transpositiontable.hpp>
 
 namespace Chess::Engine::Negamax {
 
@@ -35,8 +36,6 @@ namespace Chess::Engine::Negamax {
             return sa > sb; // higher score = earlier
         });
     }
-
-
     
     constexpr I16 EVAL_INF = 30000;
     constexpr I16 MATE = 20000;
@@ -47,67 +46,124 @@ namespace Chess::Engine::Negamax {
     static int qcnt = 0;
     static int ncnt = 0;
 
+    int quiescence(GameState & gs, TranspositionTable & tt, int alpha, int beta, int ply) {
+        /* temp */ qcnt++;
 
-    int quiescence(GameState& gs, int alpha, int beta, int ply) {
-        bool in_check = MoveGenerator::isInCheck(gs);
+        // transposition table hit check
+        TranspositionTable::EntryData hit = tt.find_entry(gs.getHashCode());
+        if (hit.is_valid()) {
+            int hit_score = hit.score;
+            if (hit_score >  MATE_THRESHOLD) hit_score -= ply;   // convert back to node-local POV
+            if (hit_score < -MATE_THRESHOLD) hit_score += ply;
 
-        Move moves[256];
-        if (in_check) {
-            int moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, false); 
-            if (moves_c == 0) return -MATE + ply;
-
-            orderMoves(gs, moves, moves_c);
-            for (int i = 0; i < moves_c; i++) {
-                Move move = moves[i];
-
-                Unmove unmove = gs.applyMove(move);
-
-                /* temp */ qcnt++;
-
-                int score = -quiescence(gs, -beta, -alpha, ply+1);
-                gs.applyUnmove(unmove);
-
-                if (score > alpha) alpha = score;
-                if (score >= beta) break;
+            switch (hit.type) {
+                case TranspositionTable::Node::EXACT: return hit_score;
+                case TranspositionTable::Node::LOWERBOUND:
+                    if(hit_score > alpha) alpha = hit_score;
+                    break;
+                case TranspositionTable::Node::UPPERBOUND:
+                    if (hit_score < beta) beta = hit_score;
+                    break;
             }
 
-            return alpha;
-        } 
+            if (alpha >= beta) return hit_score;
+        }
 
-        // else not in check
-        int static_eval = Evaluation::staticEvaluation(gs);
-        if (gs.turn == BLACK) static_eval = -static_eval;
         
-        if (static_eval >= beta) return static_eval;
-        if (static_eval > alpha) alpha = static_eval;
+        bool in_check = MoveGenerator::isInCheck(gs);
+        int moves_c;
+        Move moves[256];
+        if (in_check) {
+            moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, false); 
+            if (moves_c == 0) return -MATE + ply;
+        } else {
+            // else not in check
+            int static_eval = Evaluation::staticEvaluation(gs);
+            if (gs.turn == BLACK) static_eval = -static_eval;
+            
+            if (static_eval >= beta) return static_eval;
+            if (static_eval > alpha) alpha = static_eval;
 
-        int moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, true); 
-        if (moves_c == 0) {
-            return in_check ? -MATE + ply : alpha; // checkmate / draw
+            moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, true); 
+            if (moves_c == 0) {
+                return in_check ? -MATE + ply : alpha; // checkmate / draw
+            }
         }
 
         orderMoves(gs, moves, moves_c);
 
-        for (int i = 0; i < moves_c; i++) {
-            Move move = moves[i];
-
-            Unmove unmove = gs.applyMove(move);
-
-            /* temp */ qcnt++;
-
-            int score = -quiescence(gs, -beta, -alpha, ply+1);
-            gs.applyUnmove(unmove);
-
-            if (score > alpha) alpha = score;
-            if (score >= beta) break;
+        // try to order best move first
+        if (hit.is_valid()) {
+            for (int i = 0; i < moves_c; i++) {
+                if (moves[i].v == hit.best_move.v) {
+                    std::swap(moves[0], moves[i]);
+                    break;
+                }
+            }
         }
 
-        return alpha;
+        const int ORIG_ALPHA = alpha;
+        int best_score = -EVAL_INF;
+        Move best_move;
+        for (int i = 0; i < moves_c; i++) {
+            Move move = moves[i];
+            Unmove unmove = gs.applyMove(move);
+
+            int score = -quiescence(gs, tt, -beta, -alpha, ply+1);
+
+            gs.applyUnmove(unmove);
+
+            if (score > best_score) {
+                best_score = score;
+                best_move = move;
+            }
+            if (score > alpha) {
+                alpha = score;
+                if (alpha >= beta) break;
+            }
+        }
+
+        // store results to TT
+        TranspositionTable::Node::Type bound;
+        if (best_score <= ORIG_ALPHA) bound = TranspositionTable::Node::UPPERBOUND; // fail-low
+        else if (best_score >= beta)  bound = TranspositionTable::Node::LOWERBOUND; // fail-high
+        else                          bound = TranspositionTable::Node::EXACT;      // PV node
+
+        int best_score_mate_adjusted = best_score;
+        if (best_score_mate_adjusted >  MATE_THRESHOLD) best_score_mate_adjusted += ply;
+        if (best_score_mate_adjusted < -MATE_THRESHOLD) best_score_mate_adjusted -= ply;
+        tt.add_entry(gs.getHashCode(), best_move, best_score_mate_adjusted, 0, bound);
+
+        return best_score;
     }
 
-    int negamax(GameState & gs, int depth, int alpha, int beta, int ply = 0) {
+
+
+    int negamax(GameState & gs, TranspositionTable & tt, int depth, int alpha, int beta, int ply = 0) {
+        /* temp */ ncnt++;
+
         if (depth == 0) {
-            return quiescence(gs, alpha, beta, ply);
+            return quiescence(gs, tt, alpha, beta, ply);
+        }
+
+        // transposition table hit check
+        TranspositionTable::EntryData hit = tt.find_entry(gs.getHashCode());
+        if (hit.is_valid() && hit.depth >= depth) {
+            int hit_score = hit.score;
+            if (hit_score >  MATE_THRESHOLD) hit_score -= ply;   // convert back to node-local POV
+            if (hit_score < -MATE_THRESHOLD) hit_score += ply;
+
+            switch (hit.type) {
+                case TranspositionTable::Node::EXACT: return hit_score;
+                case TranspositionTable::Node::LOWERBOUND:
+                    if(hit_score > alpha) alpha = hit_score;
+                    break;
+                case TranspositionTable::Node::UPPERBOUND:
+                    if (hit_score < beta) beta = hit_score;
+                    break;
+            }
+
+            if (alpha >= beta) return hit_score;
         }
 
         bool in_check;
@@ -120,122 +176,50 @@ namespace Chess::Engine::Negamax {
 
         orderMoves(gs, moves, moves_c);
 
+        // try to order best move first
+        // if (hit.is_valid()) {
+        //     for (int i = 0; i < moves_c; i++) {
+        //         if (moves[i].v == hit.best_move.v) {
+        //             std::swap(moves[0], moves[i]);
+        //             break;
+        //         }
+        //     }
+        // }
+
+        const int ORIG_ALPHA = alpha;
+        int best_score = -EVAL_INF;
+        Move best_move;
         for (int i = 0; i < moves_c; i++) {
             Move move = moves[i];
-
             Unmove unmove = gs.applyMove(move);
 
-            /* temp */ ncnt++;
+            int score = -negamax(gs, tt, depth-1, -beta, -alpha, ply+1);
 
-            int score = -negamax(gs, depth-1, -beta, -alpha, ply+1);
             gs.applyUnmove(unmove);
 
-            if (score > alpha) alpha = score;
-            if (score >= beta) break;
-        }
-
-        return alpha;
-    }
-
-
-
-    static inline void orderRootMoves(Move * moves, int n, const std::vector<int> & last_scores) {
-        // last_scores[i] corresponds to moves[i] from previous iteration
-        // fallback: if last_scores empty, do your normal order_moves(gs,...)
-        std::vector<int> idx(n); for (int i=0;i<n;++i) idx[i]=i;
-        std::stable_sort(idx.begin(), idx.end(), [&](int a, int b){
-            return last_scores[a] > last_scores[b];
-        });
-        // apply permutation in-place (small n, so simple cycle permute is fine)
-        for (int i=0;i<n;++i){
-            while (idx[i]!=i){
-                std::swap(moves[i], moves[idx[i]]);
-                std::swap(const_cast<int&>(last_scores[i]), const_cast<int&>(last_scores[idx[i]])); // if last_scores is non-const
-                std::swap(idx[i], idx[idx[i]]);
+            if (score > best_score) {
+                best_score = score;
+                best_move = move;
+            }
+            if (score > alpha) {
+                alpha = score;
+                if (alpha >= beta) break;
             }
         }
+
+        // store results to TT
+        TranspositionTable::Node::Type bound;
+        if (best_score <= ORIG_ALPHA) bound = TranspositionTable::Node::UPPERBOUND; // fail-low
+        else if (best_score >= beta)  bound = TranspositionTable::Node::LOWERBOUND; // fail-high
+        else                          bound = TranspositionTable::Node::EXACT;      // PV node
+
+        int best_score_mate_adjusted = best_score;
+        if (best_score_mate_adjusted >  MATE_THRESHOLD) best_score_mate_adjusted += ply;
+        if (best_score_mate_adjusted < -MATE_THRESHOLD) best_score_mate_adjusted -= ply;
+        tt.add_entry(gs.getHashCode(), best_move, best_score_mate_adjusted, depth, bound);
+
+        return best_score;
     }
 
-    struct RootResult {
-        Move move;
-        int score;   // from side-to-move POV
-    };
-
-    
-    static constexpr int ASP_WINDOW = 50; // start narrow; widen on fail
-
-    // Iterative deepening driver
-    // Returns the final list of root moves with their depth-N scores (sorted best-first).
-    std::vector<RootResult> evaluateAllMoves(GameState & root_gs, int maxDepth) {
-        bool in_check;
-        Move rootMoves[256];
-        int n = MoveGenerator::genAllMoves(root_gs, rootMoves, in_check);
-        if (n == 0) return {}; // stalemate/checkmate handled in negamax
-
-        // seed order once (captures first etc.)
-        orderMoves(root_gs, rootMoves, n);
-
-        std::vector<int> lastScores(n, 0);  // scores from previous iteration
-        std::vector<int> currScores(n, 0);  // scores at current iteration
-
-        int bestIndex = 0;
-        int lastBestScore = 0;
-
-        for (int depth = 1; depth <= maxDepth; ++depth) {
-            if (depth > 1) {
-                // Stable reorder rootMoves by lastScores (higher first)
-                std::vector<int> tmpLast = lastScores; // copy because order_root_moves mutates
-                orderRootMoves(rootMoves, n, tmpLast);
-            }
-
-            // Aspiration window around last best score
-            int alpha0 = -EVAL_INF, beta0 = EVAL_INF;
-            if (depth > 1) {
-                alpha0 = lastBestScore - ASP_WINDOW;
-                beta0  = lastBestScore + ASP_WINDOW;
-            }
-
-            int bestScore = -EVAL_INF;
-            bestIndex = 0;
-
-            // Search all root moves
-            for (int i = 0; i < n; ++i) {
-                Move m = rootMoves[i];
-
-                Unmove u = root_gs.applyMove(m);
-
-                // PVS at root
-                int score = -negamax(root_gs, depth - 1, -beta0, -alpha0, /*ply=*/1);
-
-                // Aspiration fail: re-search with full window
-                if (score <= alpha0 || score >= beta0) {
-                    score = -negamax(root_gs, depth - 1, -EVAL_INF, EVAL_INF, 1);
-                }
-
-                root_gs.applyUnmove(u);
-
-                currScores[i] = score;
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestIndex = i;
-                }
-                if (score > alpha0) alpha0 = score; // keep window somewhat tightened
-            }
-
-            // Prepare for next iteration
-            lastBestScore = bestScore;
-            lastScores = currScores;
-            // (Optional) bump TT generation here if you add a TT: tt.bump_generation();
-        }
-
-        // Build result vector sorted by final scores
-        std::vector<RootResult> out;
-        out.reserve(n);
-        for (int i=0;i<n;++i) out.emplace_back(RootResult {rootMoves[i], lastScores[i]});
-        std::stable_sort(out.begin(), out.end(),
-            [](auto& a, auto& b){ return a.score > b.score; });
-        return out;
-    }
 
 }

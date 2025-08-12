@@ -68,13 +68,6 @@ public:
         return gen_check_data(gs, gs.turn).checkers_bitboard;
     }
 
-private:
-
-    static inline void addMove(unsigned int & moves_c, Move * moves_v, const Move && move) {
-        moves_v[moves_c] = move;
-        moves_c++;
-    }
-
     // bishop and rook rays
     // TODO: optimization - replace generation with magic bitboards
     static inline U64 gen_bishop_rays(int position, U64 occupied_spaces) {
@@ -201,6 +194,12 @@ private:
         }
 
         return output;
+    }
+
+private:
+    static inline void addMove(unsigned int & moves_c, Move * moves_v, const Move && move) {
+        moves_v[moves_c] = move;
+        moves_c++;
     }
 
     static inline void gen_pawns(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {

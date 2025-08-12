@@ -23,7 +23,7 @@ int main(int argc, char* argv[]) {
         return 0;
     } 
 
-    Chess::GameState gs = Chess::FEN::FENToGameState("4r1k1/1ppq1p2/p2b1nnQ/3P1b2/1BB5/P1N2N1P/1P3PP1/4R1K1 b - - 0 18");
+    Chess::GameState gs = Chess::FEN::FENToGameState("r1b1kbnr/pppp1p1p/6p1/8/1q1PP3/1PN2N2/1PP2P2/R1BQK1R1 b Qkq - 3 12");
     // Chess::GameState gs = Chess::FEN::FENToGameState("rnbqkbnr/pppppppp/8/8/8/3P4/PPP1PPPP/RNBQKBNR b KQkq - 0 1"); // after d2 to d3
     // Chess::GameState gs = Chess::FEN::FENToGameState("rnbqkbnr/pppp1ppp/8/4p3/8/3P4/PPP1PPPP/RNBQKBNR w KQkq e6 0 2"); // after d2 to d3, then e7 to e5
 

@@ -7,7 +7,7 @@
 #include <lib/chess/move.hpp>
 #include <lib/chess/unmove.hpp>
 
-#include <lib/chess/engine/negamax.hpp>
+#include <lib/chess/engine/engine.hpp>
 
 int main(int argc, char* argv[]) {
     static constexpr Logger logger = Logger("MAIN");
@@ -25,12 +25,14 @@ int main(int argc, char* argv[]) {
         return 0;
     } 
 
-    // Chess::GameState gs = Chess::FEN::FENToGameState("5k2/4pppp/8/8/4Q3/8/8/4R2K w - - 4 3");
-    Chess::GameState gs = Chess::FEN::FENToGameState("4r1k1/1ppq1p2/p2b1nnQ/3P1b2/1BB5/P1N2N1P/1P3PP1/4R1K1 b - - 0 18");
+    Chess::Engine::Engine engine = Chess::Engine::Engine();
+
+    Chess::GameState gs = Chess::FEN::FENToGameState("3Q2k1/pp4p1/1n6/2p4p/2Pb4/P7/3BrPPP/6K1 b - - 7 36");
+    // Chess::GameState gs = Chess::FEN::FENToGameState("3r1rk1/ppqn1ppp/2p1p3/2P5/2BP4/P2Q1P1P/5PP1/3RR1K1 b - - 4 18");
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto results = Chess::Engine::Negamax::evaluateAllMoves(gs, depth);
+    auto results = engine.evaluateAllMoves(gs, depth);
 
     auto finish = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::milli> elapsed = finish - start;

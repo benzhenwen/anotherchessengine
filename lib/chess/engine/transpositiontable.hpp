@@ -9,10 +9,10 @@ class TranspositionTable {
 public:
     struct Node {
         U32 partial_hash; // 32 bits / 4B
-        U16 best_move; // 16 bits / 2B
+        Move best_move;   // 16 bits / 2B
 
-        I16 score; // 16 bits / 2B
-        U8 depth;    // 8 bits  / 1B
+        I16 score;        // 16 bits / 2B
+        U8 depth;         // 8 bits  / 1B
 
         enum Type: U8 {EXACT, UPPERBOUND, LOWERBOUND} type; // 8 bits / 1B
         U8 generation; // 8 bits / 1B
@@ -32,7 +32,7 @@ public:
             generation(0),
             padding()
         {}
-        constexpr Node(U32 _partial_hash, U16 _best_move, I16 _score, U8 _depth, Type _type, I8 _generation):
+        constexpr Node(U32 _partial_hash, Move _best_move, I16 _score, U8 _depth, Type _type, I8 _generation):
             partial_hash(_partial_hash),
             best_move(_best_move),
             score(_score),
@@ -45,25 +45,34 @@ public:
     static_assert(sizeof(Node) == 16);
 
 private:
-    static constexpr size_t TT_MB = 256; // MB
+    static constexpr size_t TT_MB = 8; // MB
     static constexpr size_t BUCKET_SIZE = 64; // bytes per bucket
     static constexpr size_t BUCKETS = (TT_MB * 1048576) / BUCKET_SIZE; // 16777216
 
     static_assert((BUCKETS & (BUCKETS-1))==0);
 
-    Node table[BUCKETS][4]; // [total buckets][bucket idx] -> each bucket is 64 bytes
+    size_t buckets_cnt;
+    std::vector<Node> table; // [total buckets][bucket idx] -> each bucket is 64 bytes
 
     U8 curr_generation = 1;
 
+    inline Node* bucket_ptr(uint64_t full_hash) {
+        size_t idx = (size_t(full_hash % buckets_cnt)) * 4;
+        return & table[idx];
+    }
+
 public:
+    explicit TranspositionTable(size_t mb):
+        buckets_cnt((mb * 1048576) / 64),
+        table(buckets_cnt * 4) {}
+
     inline void bump_generation() {
         curr_generation++;
     }
 
 public:
     inline void add_entry(U64 full_hash, const Move & best_move, I16 score, U8 depth, Node::Type type) {
-        Node* bucket = table[full_hash & (BUCKETS - 1)];
-
+        Node * bucket = bucket_ptr(full_hash);
         const U32 node_partial_hash = full_hash >> 32;
 
         // bucket selection
@@ -107,6 +116,36 @@ public:
         n.type = type;
         n.generation = curr_generation;
     }   
+
+
+    struct EntryData {
+        Move best_move = Move();
+        I16 score = 0;
+        U8 depth = 0;
+        Node::Type type = Node::EXACT;
+
+        constexpr bool is_valid() {
+            return best_move.v != 0;
+        }
+    };
+    inline EntryData find_entry(U64 full_hash) {
+        Node* bucket = bucket_ptr(full_hash);
+        const U32 node_partial_hash = full_hash >> 32;
+
+        // find entry
+        for (int i = 0; i < 4; i++) {
+            if (bucket[i].partial_hash == node_partial_hash) {
+                return {
+                    bucket[i].best_move,
+                    bucket[i].score,
+                    bucket[i].depth,
+                    bucket[i].type
+                };
+            }
+        }
+
+        return EntryData{0, 0, 0, Node::EXACT}; // not found
+    }
 
 };
 }

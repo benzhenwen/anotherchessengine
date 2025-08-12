@@ -138,7 +138,7 @@ public:
         return key.hash_code;
     }
 
-    inline U64 getHashCode() const {
+    constexpr inline U64 getHashCode() const {
         return hash_code;
     }
 
@@ -291,7 +291,7 @@ public:
 
         if (turn == BLACK) fullmove_clock++;
 
-        turn = (COLOR) !turn; // next move
+        alternateTurn();
 
         return um;
     }
@@ -338,7 +338,6 @@ public:
         // Restore metadata
         turn = unmove.turn_before;
         hash_code = unmove.hash_before; 
-
     }
 
 };
