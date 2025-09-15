@@ -13,9 +13,9 @@ namespace Chess::Engine::Perft {
     U64 perft(GameState& gs, int depth, bool top_depth = true) {
         if (depth == 0) return 1;
 
-        bool _check;
         Move moves[256];
-        int n = MoveGenerator::genAllMoves(gs, moves, _check);
+        MoveGenerator::PreMoveData pre_move_data = MoveGenerator::genPreMoveData(gs);
+        int n = MoveGenerator::genAllMoves(gs, pre_move_data, moves);
         if (depth == 1) return n;
 
         U64 nodes = 0;

@@ -112,10 +112,10 @@ public:
         castle_k = ck;
         castle_q = cq;
     } 
-    inline void setEnPassantSquare(int square) { // -1 to 7, where -1 is none and 0-7 are col values
+    inline void setEnPassantSquare(int square) { // -1 to 63, where -1 is none and 0-63 are the squares
         /* for debug */ assert(square >= -1 && square <= 63 && (squareRow(square) == 2 || squareRow(square) == 5 || square == -1));
 
-        if (en_passant != -1) hash_code ^= Chess::ZobristHashes::en_passant_codes[squareCol(square)]; // clear the current value from hash if it's set
+        if (en_passant != -1) hash_code ^= Chess::ZobristHashes::en_passant_codes[squareCol(en_passant)]; // clear the current value from hash if it's set
         if (square != -1) hash_code ^= Chess::ZobristHashes::en_passant_codes[squareCol(square)]; // set the new value assuming it's not none (in which case previous instruction makes it already accurate)
         en_passant = square;
     }
@@ -157,7 +157,7 @@ public:
 
         if (turn == BLACK) hash_code ^= Chess::ZobristHashes::black_move_code;
         hash_code ^= Chess::ZobristHashes::castle_codes[castle_K][castle_Q][castle_k][castle_q];
-        if (en_passant != -1) hash_code ^= Chess::ZobristHashes::en_passant_codes[en_passant];
+        if (en_passant != -1) hash_code ^= Chess::ZobristHashes::en_passant_codes[squareCol(en_passant)];
     }
 
     // util
@@ -293,6 +293,11 @@ public:
 
         alternateTurn();
 
+        // debug check!!
+        U64 old_hash_temp = getHashCode();
+        recalculateHashCode();
+        assert(old_hash_temp == getHashCode());
+
         return um;
     }
 
@@ -338,6 +343,12 @@ public:
         // Restore metadata
         turn = unmove.turn_before;
         hash_code = unmove.hash_before; 
+
+        
+        // debug check!!
+        U64 old_hash_temp = getHashCode();
+        recalculateHashCode();
+        assert(old_hash_temp == getHashCode());
     }
 
 };

@@ -110,7 +110,7 @@ namespace Chess::FEN {
                 ss << empty_count;
                 empty_count = 0;
             }
-            if (row != 8) ss << '/';
+            if (row != 0) ss << '/';
         }
         ss << ' ';
 

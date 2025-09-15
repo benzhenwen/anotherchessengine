@@ -25,3 +25,6 @@ executable('genZobrist', 'generators/genZobrist/main.cpp',
 executable('genBitboards', 'generators/genBitboard/main.cpp',
     win_subsystem: 'windows',
     dependencies: [logger_dep])
+    executable('genMagicBitboards', 'generators/genBitboard/magic.cpp',
+    win_subsystem: 'windows',
+    dependencies: [logger_dep])

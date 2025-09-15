@@ -8,6 +8,12 @@
 int main() {
     static constexpr Logger logger = Logger("Zobrist Gen");
 
+    // running negmax on depth 6 with pos rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1
+    // rutime (ms) - seed
+    // ~2000 - 8523958092582940
+    // ~2150 - 2848269824044
+
+
     std::mt19937_64 gen(8523958092582940);
     std::uniform_int_distribution<uint64_t> dis;
 

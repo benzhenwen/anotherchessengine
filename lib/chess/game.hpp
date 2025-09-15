@@ -38,7 +38,7 @@ public:
         updateAvaliableMoves();
     }
 
-    const GameState & getGameState() {
+    GameState & getGameState() {
         return game_state;
     }
 
@@ -73,14 +73,14 @@ public:
 
 protected:
     void updateAvaliableMoves() {
-        bool _check;
-        moves_c = MoveGenerator::genAllMoves(game_state, moves, _check);
+        MoveGenerator::PreMoveData pre_move_data = MoveGenerator::genPreMoveData(game_state);
+        moves_c = MoveGenerator::genAllMoves(game_state, pre_move_data, moves);
         available_formatted_moves = Ascii::formatMoveList(game_state, moves_c, moves);
     }
 
     int findMoveFormatted(const std::string & move_str) {
         for (size_t i = 0; i < available_formatted_moves.size(); ++i) {
-            if (stringEqualsCaseInsensitive(available_formatted_moves[i], move_str)) {
+            if (available_formatted_moves[i] == move_str) {
                 return static_cast<int>(i);
             }
         }

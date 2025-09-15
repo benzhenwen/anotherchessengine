@@ -8,9 +8,14 @@
 #include <lib/chess/ascii.hpp>
 #include <lib/chess/fen.hpp>
 
+#include <lib/chess/engine/engine.hpp>
+
 
 Chess::Game game;
 bool in_game = false;
+
+Chess::Engine::Engine engine;
+int engine_depth = 6;
 
 void run_command(const std::string & command) {
     if (command == "help") {
@@ -20,7 +25,8 @@ void run_command(const std::string & command) {
                     << "!moves - shows all your currently avaliable moves\n"
                     << "!fen - export your current game state to a FEN string\n" 
                     << "!board - print the board state again\n" 
-                    << "!undo - undo your previous move" << std::endl;
+                    << "!undo - undo your previous move\n"
+                    << "!engine - get the engine moves\n" << std::flush;
     }
     else if (command == "start") {
         game = Chess::Game();
@@ -64,6 +70,25 @@ void run_command(const std::string & command) {
         else {
             std::cout << "could not perform undo" << std::endl;
         }
+    }
+    else if (command == "engine") {
+        if (!in_game) {
+            std::cout << "you need to be in an active game to use this" << std::endl;
+            return;
+        }
+        std::cout << "starting engine" << std::endl;
+
+        auto start = std::chrono::high_resolution_clock::now();
+
+        auto results = engine.evaluateAllMoves(game.getGameState(), engine_depth);
+
+        auto finish = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed = finish - start;
+
+        for (const auto & result : results) {
+            std::cout << result.move.toString() << " -> " << result.score << std::endl;
+        }
+        std::cout << "in: " << elapsed.count() << "ms" << std::endl;
     }
     else {
         std::cout << "unknown command" << std::endl;

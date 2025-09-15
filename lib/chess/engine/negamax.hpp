@@ -8,7 +8,7 @@
 #include <lib/chess/movegenerator.hpp>
 #include <lib/chess/unmove.hpp>
 
-#include <lib/chess/engine/evaluation.hpp>
+#include <lib/chess/engine/staticevaluation.hpp>
 #include <lib/chess/engine/transpositiontable.hpp>
 
 namespace Chess::Engine::Negamax {
@@ -22,17 +22,18 @@ namespace Chess::Engine::Negamax {
         {101, 201, 301, 401, 501, 601}, // Victim QUEEN
         {100, 200, 300, 400, 500, 600}  // Victim KING
     };
-    int captureScore(const GameState & gs, const Move & m) {
+    int captureScore(const GameState & gs, const Move & m, const Move & best_move) {
         if (!m.isCapture()) return 0;
+        if (m.v == best_move.v) return 1024;
         // Map CAPTURE enum to piece index (0 = PAWN, ..., 5 = KING)
         int victim = static_cast<int>(gs.isMoveEnPassant(m) ? PAWN : gs.getPieceTypeAtSquare(m.to(), (COLOR) !gs.turn));
         int attacker = static_cast<int>(gs.getPieceTypeAtSquare(m.from(), gs.turn));
         return mvv_lva[victim][attacker];
     }
-    void orderMoves(const GameState & gs, Move * moves, int moves_c) {
-        std::sort(moves, moves + moves_c, [gs](const Move & a, const Move & b) {
-            int sa = captureScore(gs, a);
-            int sb = captureScore(gs, b);
+    void orderMoves(const GameState & gs, Move * moves, int moves_c, const Move & best_move) {
+        std::sort(moves, moves + moves_c, [gs, best_move](const Move & a, const Move & b) {
+            int sa = captureScore(gs, a, best_move);
+            int sb = captureScore(gs, b, best_move);
             return sa > sb; // higher score = earlier
         });
     }
@@ -45,19 +46,24 @@ namespace Chess::Engine::Negamax {
     // temp counters
     static int qcnt = 0;
     static int ncnt = 0;
+    static int tthit = 0;
+    static int ttcut = 0;
 
     int quiescence(GameState & gs, TranspositionTable & tt, int alpha, int beta, int ply) {
         /* temp */ qcnt++;
 
         // transposition table hit check
-        TranspositionTable::EntryData hit = tt.find_entry(gs.getHashCode());
+        TranspositionTable::Node hit = tt.findNode(gs.getHashCode());
         if (hit.is_valid()) {
+            tthit++;
             int hit_score = hit.score;
             if (hit_score >  MATE_THRESHOLD) hit_score -= ply;   // convert back to node-local POV
             if (hit_score < -MATE_THRESHOLD) hit_score += ply;
 
             switch (hit.type) {
-                case TranspositionTable::Node::EXACT: return hit_score;
+                case TranspositionTable::Node::EXACT: 
+                    ttcut++;
+                    return hit_score;
                 case TranspositionTable::Node::LOWERBOUND:
                     if(hit_score > alpha) alpha = hit_score;
                     break;
@@ -70,37 +76,27 @@ namespace Chess::Engine::Negamax {
         }
 
         
-        bool in_check = MoveGenerator::isInCheck(gs);
         int moves_c;
         Move moves[256];
-        if (in_check) {
-            moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, false); 
+        MoveGenerator::PreMoveData pre_move_data = MoveGenerator::genPreMoveData(gs);
+        if (pre_move_data.isCheck()) {
+            moves_c = MoveGenerator::genAllMoves(gs, pre_move_data, moves, false); 
             if (moves_c == 0) return -MATE + ply;
         } else {
             // else not in check
-            int static_eval = Evaluation::staticEvaluation(gs);
+            int static_eval = StaticEvaluation::staticEvaluation(gs, pre_move_data, alpha, beta);
             if (gs.turn == BLACK) static_eval = -static_eval;
             
             if (static_eval >= beta) return static_eval;
             if (static_eval > alpha) alpha = static_eval;
 
-            moves_c = MoveGenerator::genAllMoves(gs, moves, in_check, true); 
+            moves_c = MoveGenerator::genAllMoves(gs, pre_move_data, moves, true); 
             if (moves_c == 0) {
-                return in_check ? -MATE + ply : alpha; // checkmate / draw
+                return pre_move_data.isCheck() ? -MATE + ply : alpha; // checkmate / draw
             }
         }
 
-        orderMoves(gs, moves, moves_c);
-
-        // try to order best move first
-        if (hit.is_valid()) {
-            for (int i = 0; i < moves_c; i++) {
-                if (moves[i].v == hit.best_move.v) {
-                    std::swap(moves[0], moves[i]);
-                    break;
-                }
-            }
-        }
+        orderMoves(gs, moves, moves_c, hit.best_move);
 
         const int ORIG_ALPHA = alpha;
         int best_score = -EVAL_INF;
@@ -147,44 +143,40 @@ namespace Chess::Engine::Negamax {
         }
 
         // transposition table hit check
-        TranspositionTable::EntryData hit = tt.find_entry(gs.getHashCode());
+        TranspositionTable::Node hit = tt.findNode(gs.getHashCode());
         if (hit.is_valid() && hit.depth >= depth) {
+            tthit++;
             int hit_score = hit.score;
             if (hit_score >  MATE_THRESHOLD) hit_score -= ply;   // convert back to node-local POV
             if (hit_score < -MATE_THRESHOLD) hit_score += ply;
 
             switch (hit.type) {
-                case TranspositionTable::Node::EXACT: return hit_score;
+                case TranspositionTable::Node::EXACT: 
+                    ttcut++;
+                    return hit_score;
                 case TranspositionTable::Node::LOWERBOUND:
-                    if(hit_score > alpha) alpha = hit_score;
+                    if (hit_score > alpha) alpha = hit_score;
                     break;
                 case TranspositionTable::Node::UPPERBOUND:
                     if (hit_score < beta) beta = hit_score;
                     break;
             }
 
-            if (alpha >= beta) return hit_score;
+            if (alpha >= beta) {
+                ttcut++;
+                return hit_score;
+            }
         }
 
-        bool in_check;
         Move moves[256];
-        int moves_c = MoveGenerator::genAllMoves(gs, moves, in_check);
+        MoveGenerator::PreMoveData pre_move_data = MoveGenerator::genPreMoveData(gs);
+        int moves_c = MoveGenerator::genAllMoves(gs, pre_move_data, moves);
 
         if (moves_c == 0) {
-            return in_check ? -MATE + ply : 0; // checkmate / draw
+            return pre_move_data.isCheck() ? -MATE + ply : 0; // checkmate / draw
         }
 
-        orderMoves(gs, moves, moves_c);
-
-        // try to order best move first
-        // if (hit.is_valid()) {
-        //     for (int i = 0; i < moves_c; i++) {
-        //         if (moves[i].v == hit.best_move.v) {
-        //             std::swap(moves[0], moves[i]);
-        //             break;
-        //         }
-        //     }
-        // }
+        orderMoves(gs, moves, moves_c, hit.best_move);
 
         const int ORIG_ALPHA = alpha;
         int best_score = -EVAL_INF;

@@ -178,6 +178,9 @@ int main() {
 
     U64 between[64][64] = { 0 }; // [a][b]
 
+    U64 center4 = 0;
+    U64 center16 = 0;
+    U64 edge = 0;
 
     // row
     for (int r = 0; r < 8; ++r) {
@@ -209,8 +212,19 @@ int main() {
     out << stringifyU64Array(between, 1) << ";\n";
     logger << "Generated between bitboards";
 
+    // center and edge
+    for (int i = 0; i < 64; i++) {
+        const int r = squareRow(i);
+        const int c = squareCol(i);
 
-
+        if (r >= 3 && r <= 4 && c >= 3 && c <= 4) center4 |= squareToBitboard(i);
+        if (r >= 2 && r <= 5 && c >= 2 && c <= 5) center16 |= squareToBitboard(i);
+        if (r == 0 || r == 7 || c == 0 || c == 7) edge |= squareToBitboard(i);
+    }
+    out << "    static constexpr U64 center4 = " << "0x" << std::hex << std::setw(16) << std::setfill('0') << center4 << ";\n";
+    out << "    static constexpr U64 center16 = " << "0x" << std::hex << std::setw(16) << std::setfill('0') << center16 << ";\n";
+    out << "    static constexpr U64 edge = " << "0x" << std::hex << std::setw(16) << std::setfill('0') << edge << ";\n";
+    logger << "Generated center and edge bitboards";
 
 
 

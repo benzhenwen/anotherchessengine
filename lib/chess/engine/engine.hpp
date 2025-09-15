@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <thread>
+#include <atomic>
 
 #include <lib/chess/util.hpp>
 #include <lib/chess/gamestate.hpp>
@@ -9,17 +11,66 @@
 #include <lib/chess/unmove.hpp>
 
 #include <lib/chess/engine/negamax.hpp>
-#include <lib/chess/engine/evaluation.hpp>
 #include <lib/chess/engine/transpositiontable.hpp>
 
 namespace Chess::Engine {
 using namespace Chess::Engine::Negamax;
 class Engine {
+public:
+    struct MoveResult {
+        Move move;
+        int score;   // from side-to-move POV
+    };
 
 protected:
-    TranspositionTable tt = TranspositionTable(64);
+    GameState game_state; // should only be modified when the engine is not running
+
+    MoveResult move_scores[256]; // should only be accessed when the engine has not flagged lock_move_scores
+    unsigned int scores_c;
+    U8 current_depth;
+    
+    TranspositionTable tt; 
+
+    // thread stuff
+    std::atomic<bool> running_flag_in = false; // flag the engine object modifies to tell the worker flag when to start/stop
+    std::atomic<bool> running_flag_out = false; // flag the worker thread modifies to tell the engine once it has started/stopped after the running_flag_in is switched
+    std::atomic<bool> lock_move_scores_flag_in = false; // flag that, when true, move_scores and current_depth should not be accessed by the worker as it's being read by the engine
+    std::atomic<bool> lock_move_scores_flag_out = false; // flag that, when true, move_scores and current_depth should not be accessed by the engine as it's being written/read to by the worker
+    std::thread worker;
+
+public:
+    Engine(size_t tt_size = 8):
+        game_state(),
+        move_scores(),
+        scores_c(0),
+        current_depth(0),
+        tt(tt_size) {}
+
+    void load_game_state(const GameState & gs) {
+        assert(!running_flag_in && !running_flag_out); // ensure the engine is not running right now
+        game_state = gs;
+    }
+
+
+
+
+
+
+
+    inline void resize_tt(size_t new_size) { // expensive call and wipes the tt
+        assert(!running_flag_in && !running_flag_out); // ensure the engine is not running right now
+        tt = TranspositionTable(new_size);
+    }
+
+
+
+
+
 
 protected:
+    static constexpr int ASP_WINDOW = 50; // start narrow; widen on fail
+
+
     static inline void orderRootMoves(Move * moves, int n, const std::vector<int> & last_scores) {
         // last_scores[i] corresponds to moves[i] from previous iteration
         // fallback: if last_scores empty, do your normal order_moves(gs,...)
@@ -38,23 +89,18 @@ protected:
     }
 
     
-    static constexpr int ASP_WINDOW = 50; // start narrow; widen on fail
 public:
-    struct RootResult {
-        Move move;
-        int score;   // from side-to-move POV
-    };
-
     // Iterative deepening driver
     // Returns the final list of root moves with their depth-N scores (sorted best-first).
-    std::vector<RootResult> evaluateAllMoves(GameState & root_gs, int maxDepth) {
-        bool in_check;
+    std::vector<MoveResult> evaluateAllMoves(GameState & root_gs, int maxDepth) {
+        
         Move root_moves[256];
-        int n = MoveGenerator::genAllMoves(root_gs, root_moves, in_check);
+        MoveGenerator::PreMoveData pre_move_data = MoveGenerator::genPreMoveData(root_gs);
+        int n = MoveGenerator::genAllMoves(root_gs, pre_move_data, root_moves);
         if (n == 0) return {}; // stalemate/checkmate handled in negamax
 
         // seed order once (captures first etc.)
-        orderMoves(root_gs, root_moves, n);
+        orderMoves(root_gs, root_moves, n, Move());
 
         std::vector<int> last_scores(n, 0);  // scores from previous iteration
         std::vector<int> curr_scores(n, 0);  // scores at current iteration
@@ -64,7 +110,7 @@ public:
         for (int depth = 1; depth <= maxDepth; ++depth) {
             if (depth > 1) {
                 // Stable reorder rootMoves by lastScores (higher first)
-                std::vector<int> tmp_last = last_scores; // copy because order_root_moves mutates
+                std::vector<int> tmp_last = last_scores; // copy because orderRootMoves mutates
                 orderRootMoves(root_moves, n, tmp_last);
             }
 
@@ -120,9 +166,9 @@ public:
         }
 
         // Build result vector sorted by final scores
-        std::vector<RootResult> out;
+        std::vector<MoveResult> out;
         out.reserve(n);
-        for (int i=0;i<n;++i) out.emplace_back(RootResult {root_moves[i], last_scores[i]});
+        for (int i=0;i<n;++i) out.emplace_back(MoveResult {root_moves[i], last_scores[i]});
         std::stable_sort(out.begin(), out.end(),
             [](auto& a, auto& b){ return a.score > b.score; });
         return out;

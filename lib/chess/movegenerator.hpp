@@ -6,6 +6,7 @@
 #include <lib/chess/ascii.hpp>
 #include <lib/chess/move.hpp>
 #include <lib/lookuptables/bitboards.hpp>
+#include <lib/lookuptables/magicbitboards.hpp>
 
 #include <lib/chess/fen.hpp>
 
@@ -16,6 +17,7 @@ private:
     MoveGenerator(MoveGenerator & other) = delete;
     MoveGenerator(MoveGenerator && other) = delete;
 
+public:
     struct CheckData {
         U64 checkers_bitboard;
         bool is_double_check;
@@ -26,7 +28,7 @@ private:
         U64 pins = 0;
         U64 allowed_moves[64];
 
-        void addPin(int pin_location, U64 pin_mask_bitboard) {
+        inline void addPin(int pin_location, U64 pin_mask_bitboard) {
             U64 pin_location_bitboard = squareToBitboard(pin_location);
             if (pins & pin_location_bitboard) { // double pin
                 allowed_moves[pin_location] &= pin_mask_bitboard;
@@ -37,73 +39,75 @@ private:
         }
     };
 
+    struct PreMoveData { // data generated before extrapolating moves - useful for generating all moves but also evaluation
+        U64 controlled_squares_friendly;
+        U64 controlled_squares_unfriendly;
+        CheckData check_data;
+        PinData pin_data;
+        
+        inline int friendlyControlledSquaresCnt() const {
+            return getBitboardPopulation(controlled_squares_friendly);
+        }
+        inline int unfriendlyControlledSquaresCnt() const {
+            return getBitboardPopulation(controlled_squares_unfriendly);
+        }
+        inline bool isCheck() const {
+            return check_data.checkers_bitboard;
+        }
+        inline int pinCount() const {
+            return getBitboardPopulation(pin_data.pins);
+        }
+    };
+
 public:
-    static unsigned int genAllMoves(const GameState & gs, Move * moves_v, bool & check_v, bool gen_only_captures = false) { // returns move_c
+
+    static inline unsigned int genAllMoves(const GameState & gs, const PreMoveData & pre_move_data, Move * moves_v, bool gen_only_captures = false) { // returns move_c
         unsigned int moves_c = 0;
 
-        const U64 enemy_controlled_squares = gen_controlled_squares(gs, (COLOR) !gs.turn);
-        const CheckData enemy_checks = gen_check_data(gs, gs.turn);
-        const PinData enemy_pins = gen_pin_data(gs, gs.turn);
+        const U64 enemy_controlled_squares = pre_move_data.controlled_squares_unfriendly;
+        const CheckData & enemy_checks = pre_move_data.check_data;
+        const PinData & enemy_pins = pre_move_data.pin_data;
 
         const U64 check_evasion_bitboard = enemy_checks.checkers_bitboard ? enemy_checks.evasion_bitboard : ~0ULL; // bitboard of moves that would block a (single) check - NOT moves the king can make to mvoe out of check
 
         if (enemy_checks.is_double_check) {
             // just king moves
-            gen_king(gs, moves_c, moves_v, enemy_controlled_squares, gen_only_captures);
+            genKing(gs, moves_c, moves_v, enemy_controlled_squares, gen_only_captures);
         }
         else {
             // all moves
-            gen_pawns(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
-            gen_knights(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
-            gen_bishops(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
-            gen_rooks(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
-            gen_queens(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
-            gen_king(gs, moves_c, moves_v, enemy_controlled_squares, gen_only_captures);
+            genPawns(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
+            genKnights(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
+            genBishops(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
+            genRooks(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
+            genQueens(gs, moves_c, moves_v, check_evasion_bitboard, enemy_pins, gen_only_captures);
+            genKing(gs, moves_c, moves_v, enemy_controlled_squares, gen_only_captures);
         }   
 
-        check_v = enemy_checks.checkers_bitboard ? true : false;
         return moves_c;
     }
-    static bool isInCheck(const GameState & gs) {
-        return gen_check_data(gs, gs.turn).checkers_bitboard;
+    static inline PreMoveData genPreMoveData(const GameState & gs) {
+        return PreMoveData {
+            genControlledSquares(gs, gs.turn),
+            genControlledSquares(gs, (COLOR) !gs.turn),
+            genCheckData(gs, gs.turn),
+            genPinData(gs, gs.turn)
+        };
     }
 
+private:
     // bishop and rook rays
     // TODO: optimization - replace generation with magic bitboards
-    static inline U64 gen_bishop_rays(int position, U64 occupied_spaces) {
-        U64 output = 0;
-
-        for (int d = 0; d < 4; ++d) {
-            U64 ray = Bitboards::bishop_rays[position][d]; // NE NW SE SW
-            U64 blockers = ray & occupied_spaces;
-
-            if (!blockers) {
-                output |= ray; // no blocker: full ray
-            } else {
-                int blocker_square = (d <= 1) ? getLeastBitboardSquare(blockers) : getMostBitboardSquare(blockers);
-                output |= Bitboards::between[position][blocker_square] | squareToBitboard(blocker_square);
-            }
-        }
-        return output;
+    static inline U64 genBishopRays(int position, U64 occupied_spaces) {
+        const int index = (((occupied_spaces & MagicBitboards::bishop_magic_relevant_squares_mask[position]) * MagicBitboards::bishop_magic_numbers[position]) >> (64 - MagicBitboards::bishop_magic_relevant_bits_count[position]));
+        return MagicBitboards::bishop_magic_bitboards[position][index];
     }
-    static inline U64 gen_rook_rays(int position, U64 occupied_spaces) {
-        U64 output = 0;
-
-        for (int d = 0; d < 4; ++d) {
-            U64 ray = Bitboards::rook_rays[position][d]; // N, S, E, W
-            U64 blockers = ray & occupied_spaces;
-
-            if (!blockers) {
-                output |= ray; // no blocker: full ray
-            } else {
-                int blocker_square = (d % 2 == 0) ? getLeastBitboardSquare(blockers) : getMostBitboardSquare(blockers);
-                output |= Bitboards::between[position][blocker_square] | squareToBitboard(blocker_square);
-            }
-        }
-        return output;
+    static inline U64 genRookRays(int position, U64 occupied_spaces) {
+        const int index = (((occupied_spaces & MagicBitboards::rook_magic_relevant_squares_mask[position]) * MagicBitboards::rook_magic_numbers[position]) >> (64 - MagicBitboards::rook_magic_relevant_bits_count[position]));
+        return MagicBitboards::rook_magic_bitboards[position][index];
     }
     
-    static inline U64 gen_controlled_squares(const GameState & gs, COLOR color) {
+    static inline U64 genControlledSquares(const GameState & gs, COLOR color) {
         U64 output = 0;
 
         for (int piece_type = PAWN; piece_type <= KING; piece_type++) {
@@ -113,9 +117,9 @@ public:
                 switch (piece_type) {
                     case PAWN:   output |= Bitboards::pawn_attacks[piece_location][color]; break;
                     case KNIGHT: output |= Bitboards::knight_moves[piece_location]; break;
-                    case BISHOP: output |= gen_bishop_rays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
-                    case ROOK:   output |= gen_rook_rays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
-                    case QUEEN:  output |= gen_bishop_rays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]) | gen_rook_rays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
+                    case BISHOP: output |= genBishopRays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
+                    case ROOK:   output |= genRookRays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
+                    case QUEEN:  output |= genBishopRays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]) | genRookRays(piece_location, gs.occupied_spaces & ~gs.pieces[(COLOR) !color][KING]); break;
                     case KING:   output |= Bitboards::king_moves[piece_location]; break;
                 }
                 bb &= bb - 1;
@@ -124,7 +128,7 @@ public:
 
         return output;
     }
-    static inline CheckData gen_check_data(const GameState & gs, COLOR color) {
+    static inline CheckData genCheckData(const GameState & gs, COLOR color) {
         const int king_location = getLeastBitboardSquare(gs.pieces[color][KING]); // assumes one king
 
         U64 checkers_bitboard = 0;
@@ -133,8 +137,8 @@ public:
         // basic checks
         checkers_bitboard |= Bitboards::pawn_attacks[king_location][color] & gs.pieces[!color][PAWN];
         checkers_bitboard |= Bitboards::knight_moves[king_location] & gs.pieces[!color][KNIGHT];
-        checkers_bitboard |= gen_bishop_rays(king_location, gs.occupied_spaces) & (gs.pieces[!color][BISHOP] | gs.pieces[!color][QUEEN]);
-        checkers_bitboard |= gen_rook_rays(king_location, gs.occupied_spaces) & (gs.pieces[!color][ROOK] | gs.pieces[!color][QUEEN]);
+        checkers_bitboard |= genBishopRays(king_location, gs.occupied_spaces) & (gs.pieces[!color][BISHOP] | gs.pieces[!color][QUEEN]);
+        checkers_bitboard |= genRookRays(king_location, gs.occupied_spaces) & (gs.pieces[!color][ROOK] | gs.pieces[!color][QUEEN]);
         checkers_bitboard |= Bitboards::king_moves[king_location] & gs.pieces[!color][KING];
 
         bool dbl = getBitboardPopulation(checkers_bitboard) >= 2;
@@ -153,7 +157,7 @@ public:
 
         return {checkers_bitboard, dbl, evasion_bitboard};
     }
-    static inline PinData gen_pin_data(const GameState & gs, COLOR color) {
+    static inline PinData genPinData(const GameState & gs, COLOR color) {
         const int king_location = getLeastBitboardSquare(gs.pieces[color][KING]); // assumes one king
         PinData output;
 
@@ -202,7 +206,7 @@ private:
         moves_c++;
     }
 
-    static inline void gen_pawns(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
+    static inline void genPawns(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
         U64 pawn_bitboard = gs.pieces[gs.turn][PAWN];
         while (pawn_bitboard) {
             const int pawn_search_square = getLeastBitboardSquare(pawn_bitboard); // for each pawn of gs.turn color
@@ -277,7 +281,7 @@ private:
             pawn_bitboard &= pawn_bitboard - 1; // remove rightmost 1 bit
         }
     }
-    static inline void gen_knights(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
+    static inline void genKnights(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
         U64 knight_bitboard = gs.pieces[gs.turn][KNIGHT];
         while (knight_bitboard) {
             const int knight_search_square = getLeastBitboardSquare(knight_bitboard); // for each pawn of gs.turn color
@@ -303,12 +307,12 @@ private:
             knight_bitboard &= knight_bitboard - 1;
         }
     }
-    static inline void gen_bishops(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
+    static inline void genBishops(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
         U64 bishop_bitboard = gs.pieces[gs.turn][BISHOP];
         while (bishop_bitboard) {
             const int bishop_search_square = getLeastBitboardSquare(bishop_bitboard); // for each pawn of gs.turn color
             const bool is_pinned = squareToBitboard(bishop_search_square) & pin_data.pins; // pins
-            const U64 bishop_controlled_squares = gen_bishop_rays(bishop_search_square, gs.occupied_spaces);
+            const U64 bishop_controlled_squares = genBishopRays(bishop_search_square, gs.occupied_spaces);
             
             if (!gen_only_captures) {
                 U64 bishop_moves = bishop_controlled_squares & ~gs.occupied_spaces & check_evasion_bitboard;
@@ -329,12 +333,12 @@ private:
             bishop_bitboard &= bishop_bitboard - 1;
         }
     }
-    static inline void gen_rooks(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
+    static inline void genRooks(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
         U64 rook_bitboard = gs.pieces[gs.turn][ROOK];
         while (rook_bitboard) {
             const int rook_search_square = getLeastBitboardSquare(rook_bitboard); // for each pawn of gs.turn color
             const bool is_pinned = squareToBitboard(rook_search_square) & pin_data.pins; // pins
-            const U64 rook_controlled_squares = gen_rook_rays(rook_search_square, gs.occupied_spaces);
+            const U64 rook_controlled_squares = genRookRays(rook_search_square, gs.occupied_spaces);
             
             if (!gen_only_captures) {
                 if (!gen_only_captures) {
@@ -357,12 +361,12 @@ private:
             rook_bitboard &= rook_bitboard - 1;
         }
     }
-    static inline void gen_queens(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
+    static inline void genQueens(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 check_evasion_bitboard, const PinData & pin_data, bool gen_only_captures) {
         U64 queen_bitboard = gs.pieces[gs.turn][QUEEN];
         while (queen_bitboard) {
             const int queen_search_square = getLeastBitboardSquare(queen_bitboard); // for each pawn of gs.turn color
             const bool is_pinned = squareToBitboard(queen_search_square) & pin_data.pins; // pins
-            const U64 queen_controlled_squares = gen_bishop_rays(queen_search_square, gs.occupied_spaces) | gen_rook_rays(queen_search_square, gs.occupied_spaces);
+            const U64 queen_controlled_squares = genBishopRays(queen_search_square, gs.occupied_spaces) | genRookRays(queen_search_square, gs.occupied_spaces);
             
             if (!gen_only_captures) {
                 U64 queen_moves = queen_controlled_squares & ~gs.occupied_spaces & check_evasion_bitboard;
@@ -383,7 +387,7 @@ private:
             queen_bitboard &= queen_bitboard - 1;
         }
     }
-    static inline void gen_king(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 enemy_controlled_squares, bool gen_only_captures) {
+    static inline void genKing(const GameState & gs, unsigned int & moves_c, Move * moves_v, const U64 enemy_controlled_squares, bool gen_only_captures) {
         const int king_square = getLeastBitboardSquare(gs.pieces[gs.turn][KING]);
 
         if (!gen_only_captures) {

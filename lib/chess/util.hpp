@@ -48,7 +48,9 @@ namespace Chess {
         return 63 - __builtin_clzll(bb);
     }
 
+    static size_t popcnt_callcnt = 0;
     inline int getBitboardPopulation(U64 bb) { // returns the count of '1's on the bitboard
+        popcnt_callcnt++;
         return __builtin_popcountll(bb);
     }
 
@@ -79,17 +81,6 @@ namespace Chess {
         assert(new_col >= 0 && new_col < 8);
 
         return new_row * 8 + new_col;
-    }
-
-    inline uint_fast8_t pieceValue(PIECE p) {
-        switch (p) {
-            case PAWN: return 1;
-            case BISHOP: return 3;
-            case KNIGHT: return 3;
-            case ROOK: return 5;
-            case QUEEN: return 9;
-            default: return 0;
-        }
     }
 
     inline char pieceAsciiAtSquare(const U64 pieces[2][6], int sq) {

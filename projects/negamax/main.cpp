@@ -27,7 +27,7 @@ int main(int argc, char* argv[]) {
 
     Chess::Engine::Engine engine = Chess::Engine::Engine();
 
-    Chess::GameState gs = Chess::FEN::FENToGameState("3Q2k1/pp4p1/1n6/2p4p/2Pb4/P7/3BrPPP/6K1 b - - 7 36");
+    Chess::GameState gs = Chess::FEN::FENToGameState("r3k1r1/ppp2p1p/1qn5/1B1p1b2/1P3B1p/P1NP1P2/2P1N2P/R2QK2R w KQq - 1 15");
     // Chess::GameState gs = Chess::FEN::FENToGameState("3r1rk1/ppqn1ppp/2p1p3/2P5/2BP4/P2Q1P1P/5PP1/3RR1K1 b - - 4 18");
 
     auto start = std::chrono::high_resolution_clock::now();
@@ -43,8 +43,12 @@ int main(int argc, char* argv[]) {
 
     logger << "in: " << elapsed.count() << "ms";
 
-    logger << "qcnt: " << Chess::Engine::Negamax::qcnt;
-    logger << "ncnt: " << Chess::Engine::Negamax::ncnt;
+    logger << "qcnt:  " << Chess::Engine::Negamax::qcnt;
+    logger << "ncnt:  " << Chess::Engine::Negamax::ncnt;
+    logger << "tthit: " << Chess::Engine::Negamax::tthit << " (" << (int) (((float) Chess::Engine::Negamax::tthit / (Chess::Engine::Negamax::qcnt + Chess::Engine::Negamax::ncnt)) * 10000) / 100.0f << "%)";
+    logger << "ttoff: " << Chess::Engine::Negamax::ttcut << " (" << (int) (((float) Chess::Engine::Negamax::ttcut / (Chess::Engine::Negamax::qcnt + Chess::Engine::Negamax::ncnt)) * 10000) / 100.0f << "%)";
+
+    logger << "popcnt cnt: " << Chess::popcnt_callcnt;
 
     return 0;
 }

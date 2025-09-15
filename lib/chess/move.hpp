@@ -42,7 +42,7 @@ struct Move {
     // some display stuff
 public:
     std::string toString() const {
-        return squareToLetterNumber(from()) + " -> " + squareToLetterNumber(to());
+        return squareToLetterNumber(from()) + " " + squareToLetterNumber(to());
     }
 
 private:
