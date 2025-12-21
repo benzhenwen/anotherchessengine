@@ -1,0 +1,6 @@
+[wrap-git]
+url = https://github.com/benzhenwen/Logger.git
+revision = main 
+
+[provide]
+logger = logger_dep

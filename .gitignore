@@ -1,4 +1,5 @@
 build
 buildoptimized
-subprojects
+subprojects/*
+!subprojects/*.wrap
 .vscode

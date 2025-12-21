@@ -10,3 +10,4 @@
 
 #include <lib/chess/engine/staticevaluation.hpp>
 #include <lib/chess/engine/transpositiontable.hpp>
+
